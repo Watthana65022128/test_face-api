@@ -291,33 +291,4 @@ MIT License - ดู [LICENSE](LICENSE) สำหรับรายละเอ�
 4. Push ไป Branch (`git push origin feature/amazing-feature`)
 5. สร้าง Pull Request
 
-## 📞 ติดต่อและสนับสนุน
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/face-2fa-login/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/face-2fa-login/discussions)
-- **Email**: your.email@example.com
-
-## 🙏 Credits และขอบคุณ
-
-- [face-api.js](https://github.com/justadudewhohacks/face-api.js) - Face Recognition Library
-- [Next.js](https://nextjs.org/) - React Framework
-- [Prisma](https://prisma.io/) - Database ORM
-- [TailwindCSS](https://tailwindcss.com/) - CSS Framework
-- [Vercel](https://vercel.com/) - Deployment Platform
-
-## 📈 สถิติโปรเจค
-
-![GitHub stars](https://img.shields.io/github/stars/yourusername/face-2fa-login?style=social)
-![GitHub forks](https://img.shields.io/github/forks/yourusername/face-2fa-login?style=social)
-![GitHub issues](https://img.shields.io/github/issues/yourusername/face-2fa-login)
-![GitHub pull requests](https://img.shields.io/github/issues-pr/yourusername/face-2fa-login)
-
----
-
-<div align="center">
-
-**⭐ หากโปรเจคนี้มีประโยชน์ กรุณาให้ Star ด้วยนะครับ! ⭐**
-
-Made with ❤️ by [Your Name](https://github.com/yourusername)
-
-</div>
