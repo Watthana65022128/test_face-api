@@ -1,56 +1,70 @@
-'use client';
+// หน้าลงทะเบียนผู้ใช้ใหม่ (Register Page)
+// รับข้อมูล email/password และสร้างบัญชีใหม่ในฐานข้อมูล
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+'use client'; // Client Component สำหรับใช้ React hooks
+
+import { useState } from 'react';         // React hook สำหรับจัดการ state
+import { useRouter } from 'next/navigation'; // Next.js router
 
 export default function RegisterPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const router = useRouter();
+  // State variables สำหรับจัดการข้อมูลในฟอร์ม
+  const [email, setEmail] = useState('');                     // อีเมลที่ผู้ใช้กรอก
+  const [password, setPassword] = useState('');               // รหัสผ่าน
+  const [confirmPassword, setConfirmPassword] = useState(''); // รหัสผ่านยืนยัน
+  const [loading, setLoading] = useState(false);              // สถานะการ loading
+  const [message, setMessage] = useState('');                 // ข้อความสำเร็จ
+  const [error, setError] = useState('');                     // ข้อความ error
+  const router = useRouter();                               // Router instance
 
+  /**
+   * ฟังก์ชันจัดการการส่งฟอร์มลงทะเบียน
+   * ตรวจสอบข้อมูลและส่งไป API
+   */
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault(); // ป้องการ reload หน้า default ของ form
     
+    // ตรวจสอบว่ารหัสผ่าน 2 ช่องตรงกันหรือไม่
     if (password !== confirmPassword) {
       setError('รหัสผ่านไม่ตรงกัน');
       return;
     }
 
+    // เริ่มการลงทะเบียน
     setLoading(true);
-    setError('');
-    setMessage('');
+    setError('');     // ล้าง error เก่า
+    setMessage('');   // ล้างข้อความเก่า
 
     try {
+      // ส่ง HTTP POST request ไป API /api/auth/register
       const response = await fetch('/api/auth/register', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json', // บอกว่าส่ง JSON data
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password }), // แปลง object เป็น JSON string
       });
 
-      const data = await response.json();
+      const data = await response.json(); // แปลง response กลับเป็น JavaScript object
 
-      if (response.ok) {
+      if (response.ok) { // หาก status code 200-299 (สำเร็จ)
         setMessage('ลงทะเบียนสำเร็จ! กรุณาลงทะเบียนใบหน้า');
         
-        // เก็บ userId ใน localStorage เพื่อใช้ในการลงทะเบียนใบหน้า
+        // เก็บ userId ใน localStorage เพื่อใช้ในหน้า Face Registration
+        // localStorage เก็บข้อมูลใน browser และคงอยู่จนกว่าจะปิด browser
         localStorage.setItem('userId', data.user.id);
         
+        // รอ 2 วินาที แล้วไปหน้า Face Registration
         setTimeout(() => {
           router.push('/register-face');
         }, 2000);
-      } else {
+      } else { // หากเกิด error (เช่น email ซ้ำ, validation error)
         setError(data.error || 'เกิดข้อผิดพลาดในการลงทะเบียน');
       }
     } catch (error) {
+      // จัดการ network error หรือเซิร์ฟเวอร์ปิด
       setError('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
     } finally {
-      setLoading(false);
+      setLoading(false); // ปิด loading ในทุกกรณี (สำเร็จหรือ error)
     }
   };
 

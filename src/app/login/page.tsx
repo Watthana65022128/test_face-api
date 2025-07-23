@@ -1,49 +1,60 @@
-'use client';
+// หน้าเข้าสู่ระบบ (Login Page)
+// ขั้นตอนที่ 1 ของ 2FA: ยืนยัน email/password ก่อน
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+'use client'; // Client Component เพื่อใช้ React hooks
+
+import { useState } from 'react';         // React hook สำหรับ state management
+import { useRouter } from 'next/navigation'; // Next.js router
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const router = useRouter();
+  // State variables สำหรับจัดการข้อมูลในฟอร์ม login
+  const [email, setEmail] = useState('');       // อีเมลที่ผู้ใช้กรอก
+  const [password, setPassword] = useState(''); // รหัสผ่าน
+  const [loading, setLoading] = useState(false); // สถานะการ loading
+  const [error, setError] = useState('');       // ข้อความ error
+  const router = useRouter();                  // Router instance
 
+  /**
+   * ฟังก์ชันจัดการการส่งฟอร์มเข้าสู่ระบบ
+   * ตรวจสอบ email/password และตัดสินใจว่าต้องทำ Face 2FA หรือไม่
+   */
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
+    e.preventDefault(); // ป้องการ reload หน้า default
+    setLoading(true);   // เริ่ม loading state
+    setError('');       // ล้าง error เก่า
 
     try {
+      // ส่ง POST request ไป API login
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password }), // ส่งข้อมูล login
       });
 
-      const data = await response.json();
+      const data = await response.json(); // รับ response จาก API
 
-      if (response.ok) {
-        // เก็บ user data ใน localStorage
+      if (response.ok) { // หาก login สำเร็จ
+        // เก็บข้อมูลผู้ใช้ใน localStorage เพื่อใช้ในหน้าถัดไป
         localStorage.setItem('user', JSON.stringify(data.user));
         
+        // ตรวจสอบว่าต้องทำ Face 2FA หรือไม่
         if (data.requiresFaceVerification) {
-          // ถ้าต้องการ face verification ให้ไปหน้า verify-face
+          // ผู้ใช้ได้ลงทะเบียนใบหน้าไว้ -> ต้องยืนยันใบหน้า
           router.push('/verify-face');
         } else {
-          // ถ้าไม่ต้องการ face verification ให้ไปหน้า dashboard หรือหน้าหลัก
+          // ผู้ใช้ยังไม่ได้ลงทะเบียนใบหน้า -> เข้าระบบได้เลย
           router.push('/dashboard');
         }
-      } else {
+      } else { // หาก login ล้มเหลว (เช่น email/password ผิด)
         setError(data.error || 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ');
       }
     } catch (error) {
+      // Network error หรือ server ปิด
       setError('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
     } finally {
-      setLoading(false);
+      setLoading(false); // ปิด loading ในทุกกรณี
     }
   };
 

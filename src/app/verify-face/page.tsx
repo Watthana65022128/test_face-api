@@ -1,53 +1,69 @@
 'use client';
 
+// Component สำหรับยืนยันตัวตนด้วยใบหน้า (Face Verification) - ขั้นตอนที่ 2 ของ 2FA
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import * as faceapi from 'face-api.js';
+import { loadFaceApiModels, detectFaceWithLandmarksAndDescriptor, drawDetectionResults } from '@/app/lib/face-api';
 
 export default function VerifyFacePage() {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [modelsLoaded, setModelsLoaded] = useState(false);
-  const [capturing, setCapturing] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  const [user, setUser] = useState<any>(null);
+  // References สำหรับ DOM elements
+  const videoRef = useRef<HTMLVideoElement>(null);    // วิดีโอจากกล้อง
+  const canvasRef = useRef<HTMLCanvasElement>(null);  // canvas สำหรับแสดงผลลัพธ์
+  
+  // State variables สำหรับจัดการสถานะ
+  const [modelsLoaded, setModelsLoaded] = useState(false);  // สถานะการโหลด ML models
+  const [capturing, setCapturing] = useState(false);       // กำลังเปิดกล้องหรือไม่
+  const [loading, setLoading] = useState(false);           // กำลังประมวลผลหรือไม่
+  const [error, setError] = useState('');                  // ข้อความ error
+  const [message, setMessage] = useState('');              // ข้อความแจ้งเตือน
+  const [user, setUser] = useState<any>(null);             // ข้อมูลผู้ใช้ที่ต้องยืนยันตัวตน
   const router = useRouter();
 
+  // useEffect - ทำงานเมื่อ component โหลดเสร็จ
   useEffect(() => {
+    // ตรวจสอบว่าผู้ใช้ได้ login แล้วและต้องทำ Face 2FA หรือไม่
     const storedUser = localStorage.getItem('user');
     if (!storedUser) {
+      // ถ้าไม่มีข้อมูลผู้ใช้ ให้กลับไปหน้า login
       router.push('/login');
       return;
     }
     
+    // แปลงข้อมูลผู้ใช้จาก JSON string เป็น object
     const userData = JSON.parse(storedUser);
     setUser(userData);
-    loadModels();
+    loadModels(); // โหลด ML models สำหรับ Face Recognition
   }, [router]);
 
+  /**
+   * ฟังก์ชันสำหรับโหลด ML Models ที่จำเป็นสำหรับ Face Recognition
+   * ใช้ฟังก์ชัน loadFaceApiModels จาก lib/face-api.ts
+   */
   const loadModels = async () => {
-    const MODEL_URL = '/models';
     try {
-      await Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-      ]);
-      setModelsLoaded(true);
+      const loaded = await loadFaceApiModels();
+      if (loaded) {
+        setModelsLoaded(true); // โหลดสำเร็จ
+      } else {
+        setError('ไม่สามารถโหลดโมเดล Face API ได้');
+      }
     } catch (error) {
       setError('ไม่สามารถโหลดโมเดล Face API ได้');
       console.error('Model loading error:', error);
     }
   };
 
+  /**
+   * ฟังก์ชันสำหรับเปิดกล้องและแสดงวิดีโอ live
+   * ขอสิทธิ์เข้าถึงกล้องจากผู้ใช้และเชื่อมต่อกับ video element
+   */
   const startVideo = async () => {
     try {
+      // ขอสิทธิ์เข้าถึงกล้อง (video only, ไม่ต้องการเสียง)
       const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        setCapturing(true);
+        videoRef.current.srcObject = stream; // เชื่อม camera stream กับ video element
+        setCapturing(true); // อัพเดทสถานะ
       }
     } catch (error) {
       setError('ไม่สามารถเข้าถึงกล้องได้');
@@ -55,79 +71,97 @@ export default function VerifyFacePage() {
     }
   };
 
+  /**
+   * ฟังก์ชันสำหรับปิดกล้องและหยุดการแสดงวิดีโอ
+   * ปลดปล่อย media resources เพื่อไม่ให้กล้องค้างเปิด
+   */
   const stopVideo = () => {
     if (videoRef.current && videoRef.current.srcObject) {
+      // หา media tracks ทั้งหมดใน stream (video track)
       const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
+      // หยุดทุก track (ปิดกล้อง)
       tracks.forEach(track => track.stop());
-      setCapturing(false);
+      setCapturing(false); // อัพเดทสถานะ
     }
   };
 
+  /**
+   * ฟังก์ชันหลักสำหรับยืนยันตัวตนด้วยใบหน้า (Face 2FA)
+   * 
+   * ขั้นตอนการทำงาน:
+   * 1. ตรวจจับใบหน้าในภาพจากกล้อง
+   * 2. สกัด Face Descriptor จากใบหน้าที่เจอ
+   * 3. วาดกรอบและจุดสำคัญบน Canvas
+   * 4. ส่งข้อมูลไป API เพื่อเปรียบเทียบกับใบหน้าที่ลงทะเบียนไว้
+   * 5. หากตรงกัน จะเข้าสู่ระบบสำเร็จ
+   */
   const verifyFace = async () => {
+    // ตรวจสอบว่าทุก element และข้อมูลพร้อมใช้งาน
     if (!videoRef.current || !canvasRef.current || !modelsLoaded || !user) {
       return;
     }
 
-    setLoading(true);
-    setError('');
+    setLoading(true);  // เริ่มสถานะ loading
+    setError('');      // ล้าง error เก่า
 
     try {
-      const detection = await faceapi
-        .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions())
-        .withFaceLandmarks()
-        .withFaceDescriptor();
+      // ขั้นตอนที่ 1-2: ตรวจจับใบหน้าและสกัด Face Descriptor
+      const detection = await detectFaceWithLandmarksAndDescriptor(videoRef.current);
 
+      // ถ้าไม่เจอใบหน้าในภาพ
       if (!detection) {
         setError('ไม่พบใบหน้าในภาพ กรุณาลองใหม่');
         setLoading(false);
         return;
       }
 
-      // วาดผลลัพธ์บน canvas
-      const canvas = canvasRef.current;
-      const displaySize = { width: videoRef.current.width, height: videoRef.current.height };
-      faceapi.matchDimensions(canvas, displaySize);
+      // ขั้นตอนที่ 3: วาดผลลัพธ์การตรวจจับบน canvas
+      drawDetectionResults(canvasRef.current, videoRef.current, detection);
 
-      const resizedDetections = faceapi.resizeResults(detection, displaySize);
-      canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
-      faceapi.draw.drawDetections(canvas, [resizedDetections]);
-      faceapi.draw.drawFaceLandmarks(canvas, [resizedDetections]);
-
-      // ส่ง face descriptor ไป API เพื่อยืนยัน
+      // ขั้นตอนที่ 4: ส่ง Face Descriptor ไป API เพื่อเปรียบเทียบ
       const response = await fetch('/api/auth/verify-face', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          userId: user.id,
-          faceDescriptor: Array.from(detection.descriptor),
+          userId: user.id, // ID ของผู้ใช้
+          faceDescriptor: Array.from(detection.descriptor), // แปลง descriptor เป็น array
         }),
       });
 
       const data = await response.json();
 
+      // ขั้นตอนที่ 5: ตรวจสอบผลลัพธ์การยืนยัน
       if (response.ok && data.verified) {
+        // ยืนยันตัวตนสำเร็จ
         setMessage('ยืนยันตัวตนสำเร็จ!');
-        stopVideo();
+        stopVideo(); // ปิดกล้อง
         
+        // รอ 2 วินาที แล้วไปหน้า dashboard
         setTimeout(() => {
           router.push('/dashboard');
         }, 2000);
       } else {
+        // ยืนยันตัวตนไม่สำเร็จ (ใบหน้าไม่ตรงกัน)
         setError(data.message || 'การยืนยันใบหน้าไม่สำเร็จ กรุณาลองใหม่');
       }
     } catch (error) {
+      // หากเกิด error ในขั้นตอนใดขั้นตอนหนึ่ง
       setError('เกิดข้อผิดพลาดในการประมวลผลภาพ');
       console.error('Face verification error:', error);
     } finally {
-      setLoading(false);
+      setLoading(false); // ปิดสถานะ loading ในทุกกรณี
     }
   };
 
+  /**
+   * ฟังก์ชันสำหรับออกจากระบบ
+   * ลบข้อมูลผู้ใช้ออกจาก localStorage และกลับไปหน้า login
+   */
   const handleLogout = () => {
-    localStorage.removeItem('user');
-    router.push('/login');
+    localStorage.removeItem('user'); // ลบข้อมูลผู้ใช้
+    router.push('/login');          // กลับไปหน้า login
   };
 
   return (

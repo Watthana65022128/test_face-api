@@ -1,51 +1,67 @@
 'use client';
 
+// Component สำหรับลงทะเบียนใบหน้าสำหรับ 2FA (Face Registration)
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import * as faceapi from 'face-api.js';
+import { loadFaceApiModels } from '@/app/lib/face-api';
 
 export default function RegisterFacePage() {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [modelsLoaded, setModelsLoaded] = useState(false);
-  const [capturing, setCapturing] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  const [userId, setUserId] = useState<string | null>(null);
+  // References สำหรับ DOM elements
+  const videoRef = useRef<HTMLVideoElement>(null);    // วิดีโอจากกล้อง
+  const canvasRef = useRef<HTMLCanvasElement>(null);  // canvas สำหรับวาดผลลัพธ์
+  
+  // State variables สำหรับจัดการสถานะของ component
+  const [modelsLoaded, setModelsLoaded] = useState(false);  // สถานะการโหลด ML models
+  const [capturing, setCapturing] = useState(false);       // กำลังเปิดกล้องหรือไม่
+  const [loading, setLoading] = useState(false);           // กำลังประมวลผลหรือไม่  
+  const [error, setError] = useState('');                  // ข้อความ error
+  const [message, setMessage] = useState('');              // ข้อความสำเร็จ
+  const [userId, setUserId] = useState<string | null>(null); // ID ของผู้ใช้
   const router = useRouter();
 
+  // useEffect - ทำงานเมื่อ component ถูก mount
   useEffect(() => {
+    // ตรวจสอบว่าผู้ใช้ลงทะเบียนแล้วหรือยัง
     const storedUserId = localStorage.getItem('userId');
     if (!storedUserId) {
+      // ถ้ายังไม่ลงทะเบียน ให้ไปหน้า register ก่อน
       router.push('/register');
       return;
     }
     setUserId(storedUserId);
-    loadModels();
+    loadModels(); // โหลด ML models
   }, [router]);
 
+  /**
+   * ฟังก์ชันสำหรับโหลด Machine Learning Models
+   * จำเป็นสำหรับการทำ Face Detection และ Face Recognition
+   */
   const loadModels = async () => {
-    const MODEL_URL = '/models';
     try {
-      await Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-      ]);
-      setModelsLoaded(true);
+      const success = await loadFaceApiModels();
+      if (success) {
+        setModelsLoaded(true); // โหลดสำเร็จ
+      } else {
+        setError('ไม่สามารถโหลดโมเดล Face API ได้');
+      }
     } catch (error) {
       setError('ไม่สามารถโหลดโมเดล Face API ได้');
       console.error('Model loading error:', error);
     }
   };
 
+  /**
+   * ฟังก์ชันสำหรับเปิดกล้องและแสดงวิดีโอ
+   * ใช้ navigator.mediaDevices.getUserMedia() เพื่อขอสิทธิ์เข้าถึงกล้อง
+   */
   const startVideo = async () => {
     try {
+      // ขอสิทธิ์เข้าถึงกล้อง (video only)
       const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        setCapturing(true);
+        videoRef.current.srcObject = stream; // เชื่อม stream เข้ากับ video element
+        setCapturing(true); // อัพเดทสถานะ
       }
     } catch (error) {
       setError('ไม่สามารถเข้าถึงกล้องได้');
@@ -53,80 +69,106 @@ export default function RegisterFacePage() {
     }
   };
 
+  /**
+   * ฟังก์ชันสำหรับปิดกล้องและหยุดการแสดงวิดีโอ
+   * หยุด media tracks ทั้งหมดเพื่อปลดปล่อย resource
+   */
   const stopVideo = () => {
     if (videoRef.current && videoRef.current.srcObject) {
+      // หา media tracks ทั้งหมดใน stream
       const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
+      // หยุดทุก track (ปิดกล้อง)
       tracks.forEach(track => track.stop());
-      setCapturing(false);
+      setCapturing(false); // อัพเดทสถานะ
     }
   };
 
+  /**
+   * ฟังก์ชันหลักสำหรับจับภาพใบหน้าและลงทะเบียน Face 2FA
+   * 
+   * ขั้นตอนการทำงาน:
+   * 1. ตรวจจับใบหน้าในภาพจากกล้อง
+   * 2. สกัด Face Descriptor (ข้อมูลลักษณะใบหน้า)
+   * 3. วาดกรอบและจุดสำคัญบน Canvas
+   * 4. ส่งข้อมูลไปบันทึกใน Database
+   */
   const captureFace = async () => {
+    // ตรวจสอบว่าทุก element พร้อมใช้งานแล้ว
     if (!videoRef.current || !canvasRef.current || !modelsLoaded || !userId) {
       return;
     }
 
-    setLoading(true);
-    setError('');
+    setLoading(true);  // เริ่มสถานะ loading
+    setError('');      // ล้าง error เก่า
 
     try {
+      // ขั้นตอนที่ 1-2: ตรวจจับใบหน้าและสกัดข้อมูล
       const detection = await faceapi
-        .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions())
-        .withFaceLandmarks()
-        .withFaceDescriptor();
+        .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions()) // หาใบหน้า
+        .withFaceLandmarks()    // หาจุดสำคัญ 68 จุด  
+        .withFaceDescriptor();  // สกัด descriptor 128 มิติ
 
+      // ถ้าไม่เจอใบหน้า
       if (!detection) {
         setError('ไม่พบใบหน้าในภาพ กรุณาลองใหม่');
         setLoading(false);
         return;
       }
 
-      // วาดผลลัพธ์บน canvas
+      // ขั้นตอนที่ 3: วาดผลลัพธ์บน canvas
       const canvas = canvasRef.current;
       const displaySize = { width: videoRef.current.width, height: videoRef.current.height };
-      faceapi.matchDimensions(canvas, displaySize);
+      faceapi.matchDimensions(canvas, displaySize); // ปรับขนาด canvas
 
       const resizedDetections = faceapi.resizeResults(detection, displaySize);
-      canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
-      faceapi.draw.drawDetections(canvas, [resizedDetections]);
-      faceapi.draw.drawFaceLandmarks(canvas, [resizedDetections]);
+      canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height); // ล้าง canvas
+      faceapi.draw.drawDetections(canvas, [resizedDetections]);     // วาดกรอบใบหน้า
+      faceapi.draw.drawFaceLandmarks(canvas, [resizedDetections]);  // วาดจุดสำคัญ
 
-      // ส่ง face descriptor ไป API
+      // ขั้นตอนที่ 4: ส่งข้อมูล Face Descriptor ไปบันทึกใน Database
       const response = await fetch('/api/auth/register-face', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          userId,
-          faceDescriptor: Array.from(detection.descriptor),
+          userId,  // ID ของผู้ใช้
+          faceDescriptor: Array.from(detection.descriptor), // แปลง descriptor เป็น array
         }),
       });
 
       const data = await response.json();
 
       if (response.ok) {
+        // ลงทะเบียนสำเร็จ
         setMessage('ลงทะเบียนใบหน้าสำเร็จ!');
-        stopVideo();
+        stopVideo(); // ปิดกล้อง
         
+        // รอ 2 วินาที แล้วไปหน้า login
         setTimeout(() => {
-          localStorage.removeItem('userId');
+          localStorage.removeItem('userId'); // ลบข้อมูลใน localStorage
           router.push('/login');
         }, 2000);
       } else {
+        // ลงทะเบียนล้มเหลว
         setError(data.error || 'เกิดข้อผิดพลาดในการลงทะเบียนใบหน้า');
       }
     } catch (error) {
+      // หากเกิด error ในขั้นตอนใดขั้นตอนหนึ่ง
       setError('เกิดข้อผิดพลาดในการประมวลผลภาพ');
       console.error('Face capture error:', error);
     } finally {
-      setLoading(false);
+      setLoading(false); // ปิดสถานะ loading ในทุกกรณี
     }
   };
 
+  /**
+   * ฟังก์ชันสำหรับข้าม Face Registration
+   * ผู้ใช้สามารถเข้าสู่ระบบแบบธรรมดา (แค่ email/password) ได้
+   */
   const skipFaceRegistration = () => {
-    localStorage.removeItem('userId');
-    router.push('/login');
+    localStorage.removeItem('userId'); // ลบข้อมูลใน localStorage
+    router.push('/login');             // ไปหน้า login
   };
 
   return (
@@ -205,15 +247,6 @@ export default function RegisterFacePage() {
                 กำลังประมวลผล...
               </button>
             )}
-          </div>
-
-          <div className="mt-4 text-center">
-            <button
-              onClick={skipFaceRegistration}
-              className="text-sm text-gray-600 hover:text-gray-800"
-            >
-              ข้ามการลงทะเบียนใบหน้า (สามารถทำได้ภายหลัง)
-            </button>
           </div>
         </div>
       </div>
